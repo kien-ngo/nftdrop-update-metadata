@@ -1,37 +1,14 @@
-import Image from "next/image";
-import { Inter } from "next/font/google";
 import { useRef, useState } from "react";
-import { BaseContract, BigNumber } from "ethers";
-import { SmartContract, ThirdwebSDK, isExtensionEnabled } from "@thirdweb-dev/sdk";
+import { BaseContract } from "ethers";
+import { SmartContract, ThirdwebSDK } from "@thirdweb-dev/sdk";
 import { allChains } from "@thirdweb-dev/chains";
 import { ConnectWallet, ThirdwebProvider } from "@thirdweb-dev/react";
-// 0xA71175AAE13A1b866292f1C3426eD625F476dFbe
-const inter = Inter({ subsets: ["latin"] });
+// 0xDde615012C5F8E20c1cA96cfE052020E0365bD04
 const clientId = process.env.NEXT_PUBLIC_CLIENT_ID;
-
-type OwnedToken = {
-  owner: string;
-  tokenId: number;
-};
 
 type LoadedContractInfo = {
   contractAddress: string;
   chainSlug: string;
-  contractType:
-  | "custom"
-  | "edition-drop"
-  | "edition"
-  | "marketplace"
-  | "marketplace-v3"
-  | "multiwrap"
-  | "nft-collection"
-  | "nft-drop"
-  | "pack"
-  | "signature-drop"
-  | "split"
-  | "token-drop"
-  | "token"
-  | "vote";
   instance: SmartContract<BaseContract>
 };
 
@@ -71,7 +48,6 @@ export default function Home() {
           sdk.resolveContractType(contractAddress),
         ]);
         setLoadedContract({
-          contractType,
           contractAddress,
           chainSlug,
           instance: contract
@@ -91,11 +67,26 @@ export default function Home() {
     if (!tokenId) return alert("Missing tokenId");
     const contract = loadedContract.instance;
     try {
-      const [metadata, batchId] = await Promise.all([
+      const [metadata, _totalCount, tokenURI, _baseURICount] = await Promise.all([
         contract.erc721.get(tokenId),
-        contract.call("getBatchIdAtIndex", [tokenId])
+        contract.erc721.totalCount(),
+        contract.call("tokenURI", [tokenId]),
+        contract.call("getBaseURICount", [])
       ]);
-      console.log({ metadata, batchId })
+      const baseURICount = _baseURICount.toNumber();
+      const baseURI = tokenURI.replace("ipfs://", "").split("/")[0];
+      const totalCount = _totalCount.toNumber();
+      const batchIds: number[] = Array.from(
+        { length: baseURICount },
+        (_, index) => index
+      );
+      const largestTokenIdEachBatch = ((await Promise.all(batchIds.map(id => contract.call("getBatchIdAtIndex", [id])))).map(item => item.toNumber()));
+      const batchIdThatContainsTokenId = largestTokenIdEachBatch.findIndex(item => item >= Number(tokenId));
+      const start = batchIdThatContainsTokenId === 0 ? 0 : largestTokenIdEachBatch[batchIdThatContainsTokenId - 1];
+      const end = largestTokenIdEachBatch[batchIdThatContainsTokenId]
+      const tokenIds: number[] = Array.from({ length: end - start }, (_, index) => index + start);
+      console.log({ tokenId, tokenIds, metadata, totalCount, tokenURI, baseURICount, baseURI, largestTokenIdEachBatch, batchIdThatContainsTokenId })
+
     }
     catch (err) {
       if ((err as any).reason) alert((err as any).reason);
@@ -123,6 +114,7 @@ export default function Home() {
             placeholder="Contract address"
             ref={loadedContractRef}
             className="px-3 py-2"
+            defaultValue={"0xDde615012C5F8E20c1cA96cfE052020E0365bD04"}
           />
           <input
             type="text"
@@ -130,6 +122,7 @@ export default function Home() {
             placeholder="ethereum"
             className="input input-bordered w-full px-3 py-2"
             ref={loadedChainSlugRef}
+            defaultValue={"avalanche-fuji"}
           />
           <datalist id="network-list">
             {allChains.map((item) => (
